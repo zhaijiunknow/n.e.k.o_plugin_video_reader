@@ -1,0 +1,10 @@
+{
+  "note": "本地对上游文件的改动清单。UPSTREAM.json 记录上游原始 92 个文件的 SHA-256；这里只登记被改动的文件，并逐字保留改动前后的文本，测试据此把本地文件还原成上游原文再核对哈希。",
+  "patches": {
+    "src/indicator.py": {
+      "reason": "插件市场源码校验用 `ruff --isolated` 运行，不读 ruff.toml 的 extend-exclude，所以 third_party 里的 .py 也会被检查，上游这个 Qt 指示框脚本的 import 排版因此触发 I001。只把这一处多行 import 折成一行（长度 116，未超 120），语义完全不变；本插件运行时不加载该文件（只复用 pipeline 链）。",
+      "upstream": "    from PySide6.QtGui import (\n        QBrush, QColor, QFont, QFontMetricsF, QGuiApplication, QLinearGradient, QPainter, QPen,\n    )\n",
+      "local": "    from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QGuiApplication, QLinearGradient, QPainter, QPen\n"
+    }
+  }
+}

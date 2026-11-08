@@ -68,9 +68,7 @@ def label_text():
 def main():
     die_with_parent()
     from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-    from PySide6.QtGui import (
-        QBrush, QColor, QFont, QFontMetricsF, QGuiApplication, QLinearGradient, QPainter, QPen,
-    )
+    from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QGuiApplication, QLinearGradient, QPainter, QPen
     from PySide6.QtWidgets import QApplication, QWidget
 
     class Glow(QWidget):

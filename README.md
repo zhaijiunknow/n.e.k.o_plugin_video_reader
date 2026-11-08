@@ -27,20 +27,26 @@
 
 固定上游提交：`8a5490885d23feec8aff6b035af95465d172c1f2`。
 
-`third_party/dsh-see-now/` 保存该提交的原始 `src/`、`test/`、包说明和许可证；92 个文件逐字节保存，SHA-256 记录于 `UPSTREAM.json`。`upstream_bridge.mjs` 直接导入 `src/pipeline.js` 的 `createPipeline`，完整运行其依赖链：
+`third_party/dsh-see-now/` 保存该提交的原始 `src/`、`test/`、包说明和许可证；92 个文件逐字节保存，SHA-256 记录于 `UPSTREAM.json`；唯一例外是 `src/indicator.py` 的一处 import 排版，见下文「本地补丁」。`upstream_bridge.mjs` 直接导入 `src/pipeline.js` 的 `createPipeline`，完整运行其依赖链：
 
 - HSV 打分、运动补偿、相似构图弱切点与运动中切机位判断；
 - 稳定背景/前景运动抑制，以及高分、低分候选的未来帧确认；
 - 暗场亮度归一、黑边补偿、运动积分、去重和静态兜底；
 - 自适应档位、尺寸分配、装箱、拆箱防重叠与原版 PNG 编码。
 
-不改写上游源码，不覆写算法阈值。离线模式设置上游公开选项 `queueDepth: 0` 并持续取出拼图，避免实时模式丢掉旧图。FFmpeg 解码由宿主适配器管理，以支持时间范围、协议限制、超时和取消。默认与上游一致，每秒检查 12 帧、`low` 画布 798×450；可配置 `video.fps` 和 `video.quality`（low/standard/high/ultra）。图中编号由上游绘制，每张图的编号/原视频时间映射作为文字一同送给视觉模型。
+不改写上游算法源码，不覆写算法阈值（唯一例外是一处 import 排版，见「本地补丁」）。离线模式设置上游公开选项 `queueDepth: 0` 并持续取出拼图，避免实时模式丢掉旧图。FFmpeg 解码由宿主适配器管理，以支持时间范围、协议限制、超时和取消。默认与上游一致，每秒检查 12 帧、`low` 画布 798×450；可配置 `video.fps` 和 `video.quality`（low/standard/high/ultra）。图中编号由上游绘制，每张图的编号/原视频时间映射作为文字一同送给视觉模型。
 
 此次完整复用的是视频识别、筛帧、拼图核心。DSH 的屏幕/摄像头采集界面、悬浮窗、常驻陪看和 ASR/TTS 宿主集成不由此插件启用；对话与反馈仍由 N.E.K.O 提供。
 
 0.1.0 的 `max_frames` 已不再使用；升级后建议把旧配置 `fps = 3` 改为 `fps = 12`，新增 `max_sheets = 24`。未改配置时旧的低采样率仍会被尊重。费用取决于绑定的模型，不沿用上游特定模型的 token 估算。
 
 许可证与改动说明见 `THIRD-PARTY-NOTICES.md`，上游原始 LICENSE/NOTICE 随包保留。
+
+### 本地补丁（唯一一处）
+
+插件市场的源码校验用 `ruff --isolated` 运行，`ruff.toml` 完全不生效，`extend-exclude` 里的 `third_party` 也就挡不住检查；而上游 `src/indicator.py` 的 import 排版不符合 I001。这是本仓库对上游源码的唯一改动：只把那 3 行 import 折成 1 行（116 列，未超 120），语义不变，且本插件运行时不加载该文件。改动前后的文本逐字记录在 `third_party/dsh-see-now/LOCAL-PATCHES.json`。
+
+完整性测试会把本地文件套回 `upstream` 文本，再和 `UPSTREAM.json` 里那份上游哈希比对，因此补丁之外的任何改动都会失败。`tools/update_upstream.py` 每次抓取新提交后都会重放该补丁；上游原文一旦对不上就直接报错，不会悄悄产出一份哈希失配的文件。
 
 ## 构建与检查
 
@@ -104,8 +110,10 @@ n.e.k.o_plugin_video_reader
 From this plugin repository root:
 
 ```bash
-uvx ruff==0.12.4 check --ignore-noqa --config ruff.toml .
+uvx ruff==0.12.4 check --ignore-noqa --isolated --no-respect-gitignore --target-version py311 --line-length 120 --select E4,E7,E9,F,I --exclude vendor .
 ```
+
+这是插件市场源码校验实际执行的命令，本地请原样照跑来复现。`--isolated` 让 `ruff.toml` 完全不生效（`vendor/` 之外的 `third_party/` 也要过），`--ignore-noqa` 让 `# noqa` 失效（所以不能用 noqa 压 E402）。日常开发可以改用 `--config ruff.toml`，那样 `vendor` 和 `third_party` 会被跳过，但发布前请按上面这条完整跑一遍。
 
 From the N.E.K.O repository root / 在 N.E.K.O 仓库根目录中 / N.E.K.O リポジトリのルートで：
 

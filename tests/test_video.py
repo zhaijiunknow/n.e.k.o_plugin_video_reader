@@ -14,8 +14,18 @@ def test_vendored_source_is_byte_identical_to_pinned_revision():
     lock = json.loads((root / "UPSTREAM.json").read_text(encoding="utf-8"))
     assert lock["revision"] == "8a5490885d23feec8aff6b035af95465d172c1f2"
     assert "src/pipeline.js" in lock["files"] and "src/cuts.js" in lock["files"]
+    # LOCAL-PATCHES.json 登记本地对上游的全部改动；本地文件套回 upstream 文本后必须
+    # 与 UPSTREAM.json 里那份上游哈希逐字节相符，因此补丁之外的任何改动都会失败。
+    patches = json.loads((root / "LOCAL-PATCHES.json").read_text(encoding="utf-8"))["patches"]
+    assert set(patches) <= set(lock["files"])
     for filename, expected in lock["files"].items():
-        assert hashlib.sha256((root / filename).read_bytes()).hexdigest() == expected, filename
+        content = (root / filename).read_bytes()
+        patch = patches.get(filename)
+        if patch:
+            text = content.decode("utf-8")
+            assert text.count(patch["local"]) == 1, filename
+            content = text.replace(patch["local"], patch["upstream"]).encode("utf-8")
+        assert hashlib.sha256(content).hexdigest() == expected, filename
 
 
 @pytest.mark.asyncio
