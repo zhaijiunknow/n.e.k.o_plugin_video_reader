@@ -48,3 +48,19 @@ async def test_batch_failure_never_returns_a_full_video_conclusion(monkeypatch):
     with pytest.raises(RuntimeError, match="second batch"):
         await analysis.analyze_sheets(client, "总结", ["A" * 2000, "B" * 2000], [])
     assert create.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("code", "expected"), [
+    ("model_usage_not_bound", "尚未绑定"),
+    ("model_usage_not_declared", "未识别"),
+    ("model_capability_mismatch", "不支持图片"),
+])
+async def test_gateway_configuration_errors_are_actionable_and_redacted(code, expected):
+    client, create = model()
+    error = RuntimeError("provider payload containing secret-key-must-not-leak")
+    error.code = code
+    create.side_effect = error
+    with pytest.raises(analysis.AnalysisError, match=expected) as caught:
+        await analysis.analyze_sheets(client, "总结", ["data:image/png;base64,test"], [])
+    assert "secret-key" not in str(caught.value)

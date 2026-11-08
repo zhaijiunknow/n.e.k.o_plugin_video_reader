@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -12,7 +13,7 @@ from plugin.plugins.video_reader.media import VideoError, extract, ffmpeg_binary
 def _ffmpeg() -> str:
     """Resolve FFmpeg for the decode tests, or skip with instructions when absent."""
     try:
-        return ffmpeg_binary({})
+        return ffmpeg_binary({"ffmpeg_path": os.environ.get("NEKO_TEST_FFMPEG", "")})
     except VideoError as exc:
         pytest.skip(f"本机没有可用的 FFmpeg，跳过真实解码用例：{exc}")
 
@@ -53,9 +54,9 @@ async def test_actual_ffmpeg_decode(tmp_path):
     binary = _ffmpeg()
     path = tmp_path / "scene.mp4"
     code, _, stderr = await run(binary, "-y", "-v", "error", "-f", "lavfi", "-i",
-                                "testsrc2=size=320x180:rate=6:duration=4", "-c:v", "libx264", str(path))
+                                "testsrc2=size=320x180:rate=6:duration=4", "-c:v", "mpeg4", str(path))
     assert code == 0, stderr
-    result = await extract(path, start=1, seconds=2, config={"fps": 3})
+    result = await extract(path, start=1, seconds=2, config={"fps": 3, "ffmpeg_path": binary})
     assert result["frames_scanned"] == 6
     assert result["start_seconds"] == 1
     assert result["end_seconds"] == 3
@@ -68,7 +69,7 @@ async def test_actual_ffmpeg_decode(tmp_path):
     assert result["frames_selected"] == sum(len(s["frames"]) for s in result["sheet_manifest"])
     assert all(t >= 1 for t in result["timestamps"])
     with pytest.raises(VideoError):
-        await extract(path, start=20, seconds=2, config={})
+        await extract(path, start=20, seconds=2, config={"ffmpeg_path": binary})
 
 
 @pytest.mark.asyncio
@@ -76,9 +77,9 @@ async def test_sheet_budget_stops_video_without_dropping_generated_sheets(tmp_pa
     binary = _ffmpeg()
     path = tmp_path / "long.mp4"
     code, _, _ = await run(binary, "-y", "-v", "error", "-f", "lavfi", "-i",
-                           "testsrc2=size=160x90:rate=12:duration=45", "-c:v", "libx264", str(path))
+                           "testsrc2=size=160x90:rate=12:duration=45", "-c:v", "mpeg4", str(path))
     assert code == 0
-    result = await extract(path, start=0, seconds=45, config={"max_sheets": 1})
+    result = await extract(path, start=0, seconds=45, config={"max_sheets": 1, "ffmpeg_path": binary})
     assert result["sheet_limit_reached"]
     assert result["partial"] and result["end_seconds"] < 45
     assert len(result["sheets"]) == result["upstream_stats"]["sheets"]
@@ -121,7 +122,7 @@ async def test_model_receives_images_and_feedback_returns(monkeypatch, tmp_path)
     }))
     create = AsyncMock(return_value=SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="观察到红色画面"))]))
     fake = SimpleNamespace(
-        config=SimpleNamespace(dump=AsyncMock(return_value={})),
+        config=SimpleNamespace(dump=AsyncMock(return_value={"video": {"analysis_backend": "plugin_model"}})),
         ctx=SimpleNamespace(models=SimpleNamespace(get_client=AsyncMock(return_value=SimpleNamespace(
             chat=SimpleNamespace(completions=SimpleNamespace(create=create)))))))
     result = await VideoReaderPlugin._watch(fake, "https://example.com/video.mp4", "发生了什么", 0, 5)

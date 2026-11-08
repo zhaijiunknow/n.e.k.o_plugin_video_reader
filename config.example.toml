@@ -3,11 +3,16 @@ enabled = true
 auto_start = true
 
 [video]
+# 默认复用宿主（包括免费版）图片能力，不需要插件模型绑定。
+# 可选 plugin_model：使用单独配置的 vision 模型槽。
+analysis_backend = "host"
 max_seconds = 300
 max_sheets = 24
 fps = 12
 quality = "low"
 node_path = ""
+# Steam 打包版自动查找系统 Python 3.11+；可指定真实解释器，不能填宿主 exe。
+python_path = ""
 max_download_mb = 256
 ffmpeg_path = ""
 cookies_file = ""

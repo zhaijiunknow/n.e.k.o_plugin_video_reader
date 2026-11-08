@@ -5,7 +5,11 @@ import json
 import sys
 from pathlib import Path
 
-vendor = Path(__file__).resolve().parent / "vendor"
+# -I intentionally excludes cwd, user site packages and PYTHONPATH.
+# Only add the trusted plugin directory and its bundled dependencies.
+plugin_dir = Path(__file__).resolve().parent
+sys.path.insert(0, str(plugin_dir))
+vendor = plugin_dir / "vendor"
 if vendor.is_dir():
     sys.path.insert(0, str(vendor))
 
@@ -41,6 +45,8 @@ def main() -> int:
             if not path.is_file() or path.stat().st_size > job["max_bytes"]:
                 raise ValueError("missing or oversized file")
             result = {"path": str(path), "title": info.get("title", "网络视频")}
+    except ImportError:
+        result = {"error": "下载器依赖不完整，请重新安装插件以恢复 vendor/yt_dlp。无需给系统 Python 安装宿主依赖。"}
     except Exception:
         result = {"error": "无法下载该视频：可能目标不是可验证的公网地址（含代理/TUN DNS）、需要登录、超过大小限制、仅提供直播/HLS，或平台限制访问。可改发本地视频，或在插件设置配置 cookies_file。"}
     (directory / "result.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")

@@ -62,7 +62,20 @@ async def analyze_sheets(client, prompt, sheets, manifests):
         payload = request_payload(text, content)
         if request_size(payload) > REQUEST_BUDGET_BYTES:
             raise AnalysisError("视频分析请求超过大小预算，请缩短观看范围。")
-        response = await client.chat.completions.create(**payload)
+        try:
+            response = await client.chat.completions.create(**payload)
+        except Exception as exc:
+            # Translate only known gateway codes; never expose provider bodies/keys.
+            messages = {
+                "model_usage_not_bound": "视频已读取，但尚未绑定视觉模型。请在「插件 API」创建支持 text 和 image_input 的模型槽，"
+                                         "然后在「看视频」插件详情将 vision（视频画面理解）绑定到该模型槽。",
+                "model_usage_not_declared": "宿主未识别 vision 模型声明，请刷新并重启「看视频」插件。",
+                "model_capability_mismatch": "绑定的 vision 模型槽不支持图片输入，请改绑支持 text 和 image_input 的模型槽。",
+            }
+            code = getattr(exc, "code", None)
+            if isinstance(code, str) and code in messages:
+                raise AnalysisError(messages[code]) from None
+            raise
         feedback = response.choices[0].message.content
         if not isinstance(feedback, str) or not feedback.strip():
             raise AnalysisError("视觉模型没有返回分析结果，请检查 vision 模型绑定。")

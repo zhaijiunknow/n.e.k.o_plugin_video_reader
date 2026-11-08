@@ -1,0 +1,6 @@
+{
+  "plugin_tool_service.py": "4510e12b904661bd7619b8c68f6ace0dca84b87c2140370ec9be0b7f7bc21145",
+  "reply_generation_service.py": "3e226e8cdf3a75117ff40d4a57bd36af0560eeefdc85dcd00b48fa470b5d9a3b",
+  "video_tool_service.py": null,
+  "tests/test_qq_video_tool.py": null
+}

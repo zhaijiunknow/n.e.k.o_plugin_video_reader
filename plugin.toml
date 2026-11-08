@@ -3,7 +3,7 @@ id = "video_reader"
 name = "看视频"
 description = "查看用户发来的视频文件、视频网址和 B 站链接，按画面变化抽取关键帧并给出带时间点的反馈。"
 keywords = ["视频", "看视频", "B站", "bilibili", "b23.tv", "video", "总结视频"]
-version = "0.2.0"
+version = "0.3.0"
 type = "plugin"
 entry = "plugin.plugins.video_reader:VideoReaderPlugin"
 
@@ -13,7 +13,7 @@ supported = ">=0.1.0,<0.3.0"
 
 [plugin.models.vision]
 label = "视频画面理解"
-required = true
+required = false
 capabilities = ["text", "image_input"]
 
 [plugin_runtime]
@@ -21,12 +21,17 @@ enabled = true
 auto_start = true
 
 [video]
+# 默认复用宿主（包括免费版）图片能力，不需要插件模型绑定。
+# 可选 plugin_model：使用单独配置的 vision 模型槽。
+analysis_backend = "host"
 # 单次观看范围；长视频可通过 start_seconds 接着看。
 max_seconds = 300
 max_sheets = 24
 fps = 12
 quality = "low"
 node_path = ""
+# Steam 打包版自动查找系统 Python 3.11+；可指定真实解释器，不能填宿主 exe。
+python_path = ""
 max_download_mb = 256
 # 留空时查找 PATH 上的 ffmpeg。插件包不捆绑二进制（市场规则拒绝），
 # 所以请让系统装有 ffmpeg，或在此填可执行文件绝对路径。
