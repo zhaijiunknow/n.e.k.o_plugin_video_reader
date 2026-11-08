@@ -1,0 +1,13 @@
+[plugin_runtime]
+enabled = true
+auto_start = true
+
+[video]
+max_seconds = 300
+max_sheets = 24
+fps = 12
+quality = "low"
+node_path = ""
+max_download_mb = 256
+ffmpeg_path = ""
+cookies_file = ""

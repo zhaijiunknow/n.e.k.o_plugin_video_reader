@@ -1,0 +1,13 @@
+[project]
+name = "video_reader"
+version = "0.2.0"
+dependencies = ["yt-dlp>=2026.1.1", "imageio-ffmpeg>=0.6,<0.7"]
+
+[tool.neko.build]
+exclude = ["*__pycache__*", "*.pyc"]
+exclude_dirs = ["tests", "dist"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
