@@ -34,10 +34,14 @@ def ffmpeg_binary(config: dict) -> str:
     if found:
         return found
     try:
+        # Developer convenience only. FFmpeg must never become a declared runtime
+        # dependency: `sync` would copy its executable into vendor/, and the Market
+        # rejects plugin packages that contain binaries.
         import imageio_ffmpeg
         return imageio_ffmpeg.get_ffmpeg_exe()
-    except (ImportError, RuntimeError) as exc:
-        raise VideoError("缺少 FFmpeg，请同步插件依赖或配置 video.ffmpeg_path。") from exc
+    except (ImportError, RuntimeError):
+        raise VideoError("找不到 FFmpeg：请把 ffmpeg 安装到 PATH，或把 video.ffmpeg_path 指向可执行文件。"
+                         "插件包按市场规则不捆绑 FFmpeg 二进制。") from None
 
 
 async def stop_process(process: asyncio.subprocess.Process) -> None:

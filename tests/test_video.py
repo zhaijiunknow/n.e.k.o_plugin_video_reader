@@ -9,6 +9,14 @@ from plugin.plugins.video_reader import VideoReaderPlugin
 from plugin.plugins.video_reader.media import VideoError, extract, ffmpeg_binary, local_source, run, validate_url
 
 
+def _ffmpeg() -> str:
+    """Resolve FFmpeg for the decode tests, or skip with instructions when absent."""
+    try:
+        return ffmpeg_binary({})
+    except VideoError as exc:
+        pytest.skip(f"本机没有可用的 FFmpeg，跳过真实解码用例：{exc}")
+
+
 def test_vendored_source_is_byte_identical_to_pinned_revision():
     root = Path(__file__).resolve().parents[1] / "third_party" / "dsh-see-now"
     lock = json.loads((root / "UPSTREAM.json").read_text(encoding="utf-8"))
@@ -42,7 +50,7 @@ async def test_local_and_private_sources_rejected(tmp_path):
 
 @pytest.mark.asyncio
 async def test_actual_ffmpeg_decode(tmp_path):
-    binary = ffmpeg_binary({})
+    binary = _ffmpeg()
     path = tmp_path / "scene.mp4"
     code, _, stderr = await run(binary, "-y", "-v", "error", "-f", "lavfi", "-i",
                                 "testsrc2=size=320x180:rate=6:duration=4", "-c:v", "libx264", str(path))
@@ -65,7 +73,7 @@ async def test_actual_ffmpeg_decode(tmp_path):
 
 @pytest.mark.asyncio
 async def test_sheet_budget_stops_video_without_dropping_generated_sheets(tmp_path):
-    binary = ffmpeg_binary({})
+    binary = _ffmpeg()
     path = tmp_path / "long.mp4"
     code, _, _ = await run(binary, "-y", "-v", "error", "-f", "lavfi", "-i",
                            "testsrc2=size=160x90:rate=12:duration=45", "-c:v", "libx264", str(path))

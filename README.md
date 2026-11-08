@@ -4,7 +4,7 @@
 
 ## 使用
 
-1. 安装 Node.js 20 或以上，使 `node` 在 PATH 上可用；也可在插件配置中设置 `video.node_path` 为可执行文件绝对路径。然后在插件中心启用「看视频」。在「插件 API」创建支持 `text` 和 `image_input` 的模型槽，并在插件详情把 `vision` 绑定到它。插件不自行读取主模型密钥。
+1. 安装 Node.js 20 或以上，使 `node` 在 PATH 上可用；也可在插件配置中设置 `video.node_path` 为可执行文件绝对路径。还需要系统里有 FFmpeg：市场规则不允许插件包携带二进制，所以请把 `ffmpeg` 装到 PATH，或把 `video.ffmpeg_path` 指向可执行文件。然后在插件中心启用「看视频」。在「插件 API」创建支持 `text` 和 `image_input` 的模型槽，并在插件详情把 `vision` 绑定到它。插件不自行读取主模型密钥。
 2. 发消息：`帮我看看这个视频，讲讲发生了什么：https://www.bilibili.com/video/BV...`，支持 `b23.tv` 短链接和 yt-dlp 支持的 HTTP 视频。
 3. 配套 N.E.K.O 宿主的桌面页面可把 MP4/MKV/WebM/MOV 等视频拖到角色上；也可以在消息里提供本机视频绝对路径。视频附件上传上限 256 MiB，存于本机临时目录，24 小时后在下一次上传时清理，缓存上限 1 GiB。
 4. 主模型可调用 `watch_video`；Agent 插件通道可调用 `video_reader.analyze`。结果返回当前对话，由角色自然表达。插件入口也可手动测试：
@@ -58,7 +58,7 @@ node --test --test-isolation=none plugin/plugins/video_reader/tests/upstream_bri
 .venv/Scripts/python.exe -m plugin.neko_plugin_cli build video_reader
 ```
 
-`sync` 把 Python 依赖和 imageio-ffmpeg 的可执行文件放入插件 `vendor/`。默认优先使用 PATH 上的 FFmpeg，也可配置 `video.ffmpeg_path`。Node.js 使用系统安装，不在插件包内捆绑。独立插件包包含视频分析功能；角色拖入视频的上传入口还需要 N.E.K.O 宿主对应的视频上传改动。QQ 等第三方渠道须把视频下载地址或文件路径提供给工具，仅有“一个视频”的文字计数不足以分析。
+`sync` 把 Python 依赖放入插件 `vendor/`，其中只有纯 Python 的 yt-dlp。FFmpeg 不随包（市场拒绝含二进制的包），运行时取 PATH 上的 `ffmpeg`，或配置 `video.ffmpeg_path`。Node.js 使用系统安装，不在插件包内捆绑。独立插件包包含视频分析功能；角色拖入视频的上传入口还需要 N.E.K.O 宿主对应的视频上传改动。QQ 等第三方渠道须把视频下载地址或文件路径提供给工具，仅有“一个视频”的文字计数不足以分析。
 
 更新上游时使用 `python tools/update_upstream.py <完整提交SHA>`，再跑校验和、桥接一致性和上游回归测试。桥接一致性测试将同一批帧分别传给直接调用的上游核心和 N.E.K.O 适配器，比较每一张 PNG 的 SHA-256、关键帧决定、位置和统计；不是只检查代码是否导入了模块。该 Node 测试命令使用新版 Node 的 `--test-isolation=none`；较旧的 Node 20 可去掉该测试参数。
 

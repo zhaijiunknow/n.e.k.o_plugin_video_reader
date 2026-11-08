@@ -28,7 +28,8 @@ fps = 12
 quality = "low"
 node_path = ""
 max_download_mb = 256
-# 留空时查找 PATH，再使用 imageio-ffmpeg 自带的可执行文件。
+# 留空时查找 PATH 上的 ffmpeg。插件包不捆绑二进制（市场规则拒绝），
+# 所以请让系统装有 ffmpeg，或在此填可执行文件绝对路径。
 ffmpeg_path = ""
 # 可选 Netscape cookies 文件，仅用于用户已授权的视频访问，不自动读取浏览器。
 cookies_file = ""

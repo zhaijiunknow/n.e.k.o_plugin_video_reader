@@ -30,8 +30,8 @@ video images to the user-configured model provider for analysis. DSH-specific
 UI, ASR/TTS and realtime host integrations are not activated by this adapter.
 
 Runtime dependencies are supplied by `neko-plugin sync` with their own license
-files: yt-dlp (Unlicense, with bundled component notices), imageio-ffmpeg (BSD)
-and its platform-specific FFmpeg executable
-(see that distribution's bundled FFmpeg license notices).
+files: yt-dlp (Unlicense, with bundled component notices).
 
-Node.js >=20 is an external runtime prerequisite, not redistributed in this package.
+FFmpeg and Node.js >=20 are external runtime prerequisites, not redistributed in this
+package: the Market rejects plugin packages that contain binaries, so the plugin
+resolves `ffmpeg` from PATH (or `video.ffmpeg_path`) instead of shipping one.
