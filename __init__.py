@@ -5,7 +5,7 @@ import math
 import tempfile
 from pathlib import Path
 
-from plugin.sdk.plugin import NekoPluginBase, Ok, llm_tool, neko_plugin, plugin_entry
+from plugin.sdk.plugin import NekoPluginBase, Ok, neko_plugin, plugin_entry
 
 SCHEMA = {
     "type": "object",
@@ -13,29 +13,23 @@ SCHEMA = {
         "source": {"type": "string", "description": "用户提供的视频 URL、B站/b23.tv 链接（支持标题分享文本和 Markdown 链接）、本地视频绝对路径或 neko-video: 附件标识。不可编造路径。"},
         "question": {"type": "string", "description": "用户希望了解什么，如总结、剧情、操作步骤或评价。"},
         "start_seconds": {"type": "number", "minimum": 0, "description": "从第几秒开始看，默认 0。"},
+        "return_images": {"type": "boolean", "default": False, "description": "仅供插件间联动：true 时只返回图片，不向桌面推送，且只接受公开 HTTP(S) 链接。桌面 Agent 请省略或填 false。"},
         "seconds": {"type": "number", "minimum": 1, "maximum": 600, "description": "观看时长，默认 300 秒，受插件上限限制。"},
     },
     "required": ["source"],
     "additionalProperties": False,
-}
-QQ_SCHEMA = {
-    **SCHEMA,
-    "properties": {
-        **SCHEMA["properties"],
-        "source": {"type": "string", "description": "用户给出的公开 HTTP(S) 视频链接，支持B站标题分享文本和Markdown。不接受宿主本地路径或附件标识。"},
-    },
 }
 DESCRIPTION = "观看并分析用户发送的视频文件、视频网址、B站或 b23.tv 链接，返回带时间点的内容反馈。必须实际调用，不可只凭标题猜测。长视频可指定起始时间继续看；当前只分析画面，不识别音频。"
 
 
 @neko_plugin
 class VideoReaderPlugin(NekoPluginBase):
-    @llm_tool(name="watch_video", description=DESCRIPTION, parameters=SCHEMA, timeout=300)
-    async def watch_video(self, source: str, question: str = "总结视频内容并给出你的反馈", start_seconds: float = 0, seconds: float = 300, **kwargs):
-        return await self._watch(source, question, start_seconds, seconds, tool_call=True)
-
     @plugin_entry(id="analyze", name="看视频", description=DESCRIPTION, input_schema=SCHEMA, timeout=300)
-    async def analyze(self, source: str, question: str = "总结视频内容并给出你的反馈", start_seconds: float = 0, seconds: float = 300, **kwargs):
+    async def analyze(self, source: str, question: str = "总结视频内容并给出你的反馈", start_seconds: float = 0, seconds: float = 300, return_images: bool = False, **kwargs):
+        if type(return_images) is not bool:
+            return Ok({"status": "error", "message": "return_images 必须是布尔值。"})
+        if return_images:
+            return await self._prepare_images(source, question, start_seconds, seconds)
         context = kwargs.get("_ctx")
         target = context.get("lanlan_name") if isinstance(context, dict) else None
         if not isinstance(target, str) or not target.strip():
@@ -45,8 +39,7 @@ class VideoReaderPlugin(NekoPluginBase):
             return await self.ctx.finish(data=result, delivery="silent")
         return Ok(result)
 
-    @plugin_entry(id="prepare_for_qq", name="QQ 视频抽帧", description="供 QQ 插件联动：只返回公开视频链接的抽帧图片，不向桌面对话推送。", input_schema=QQ_SCHEMA, timeout=300, metadata={"agent_auto": False})
-    async def prepare_for_qq(self, source: str, question: str = "总结视频内容", start_seconds: float = 0, seconds: float = 300, **kwargs):
+    async def _prepare_images(self, source, question, start_seconds, seconds):
         from urllib.parse import urlsplit
 
         from .media import VideoError, normalize_source
@@ -58,9 +51,9 @@ class VideoReaderPlugin(NekoPluginBase):
                 raise VideoError("QQ 看视频只接受公开的 HTTP(S) 视频链接，不读取宿主本地文件或附件标识。")
         except (VideoError, ValueError):
             return Ok({"status": "error", "message": "请提供一个公开的 HTTP(S) 视频链接；QQ 不允许读取宿主本地文件。"})
-        return Ok(await self._watch(source, question, start_seconds, seconds, tool_call=True, host_images_only=True))
+        return Ok(await self._watch(source, question, start_seconds, seconds, return_images=True, host_images_only=True))
 
-    async def _watch(self, source, question, start_seconds, seconds, *, target=None, tool_call=False, host_images_only=False):
+    async def _watch(self, source, question, start_seconds, seconds, *, target=None, return_images=False, host_images_only=False):
         if getattr(self, "_watching", False):
             return {"status": "busy", "message": "正在看另一个视频，请等这次完成。"}
         self._watching = True
@@ -107,9 +100,9 @@ class VideoReaderPlugin(NekoPluginBase):
                         stage = "提交宿主图片分析"
                         delivered = await deliver_to_host(
                             self.ctx, prompt, sheets, result.get("sheet_manifest", []),
-                            target=target, tool_call=tool_call,
+                            target=target, return_images=return_images,
                         )
-                        if tool_call:
+                        if return_images:
                             coverage = {key: result[key] for key in (
                                 "start_seconds", "end_seconds", "duration_seconds", "frames_selected",
                                 "partial", "audio_analyzed", "next_start_seconds",

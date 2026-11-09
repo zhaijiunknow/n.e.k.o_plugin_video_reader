@@ -3,7 +3,7 @@ id = "video_reader"
 name = "看视频"
 description = "查看用户发来的视频文件、视频网址和 B 站链接，按画面变化抽取关键帧并给出带时间点的反馈。"
 keywords = ["视频", "看视频", "B站", "bilibili", "b23.tv", "video", "总结视频"]
-version = "0.3.0"
+version = "0.3.1"
 type = "plugin"
 entry = "plugin.plugins.video_reader:VideoReaderPlugin"
 

@@ -1,33 +1,63 @@
 --- a/plugin_tool_service.py
 +++ b/plugin_tool_service.py
-@@ -516,6 +516,11 @@
+@@ -143,6 +143,21 @@
+     "（这是**内部错误原文**：不要把它念给对方，也不要在群里复述；"
+     "用你自己的话简短说一句「刚才那个没成功」就行。）"
+ )
++
++
++def _video_image_return_supported(item: dict[str, Any]) -> bool:
++    entries = item.get("entries")
++    if not isinstance(entries, list):
++        return False
++    for entry in entries:
++        if not isinstance(entry, dict) or entry.get("id", entry.get("event_id")) != "analyze":
++            continue
++        schema = entry.get("input_schema")
++        properties = schema.get("properties") if isinstance(schema, dict) else None
++        flag = properties.get("return_images") if isinstance(properties, dict) else None
++        if isinstance(flag, dict) and flag.get("type") == "boolean" and flag.get("default") is False:
++            return True
++    return False
+ 
+ 
+ def _is_secret_key(name: Any) -> bool:
+@@ -371,6 +386,7 @@
+                 "description": str(item.get("description") or ""),
+                 "entries": sorted(set(self._entry_ids(item))),
+                 "entry_hints": self._entry_hints(item),
++                "video_image_return": _video_image_return_supported(item),
+                 #: 只有 True 的那些会进提示词（见 :meth:`select_mounted`）。
+                 "running": status == "running",
+             })
+@@ -516,6 +532,11 @@
                  continue
              if not row.get("entries"):
                  continue
 +            if plugin_id == "video_reader":
-+                # Never offer desktop-push entries to a QQ conversation.
-+                if "prepare_for_qq" not in row["entries"]:
++                # Only mount versions that explicitly support image-only delivery.
++                if "analyze" not in row["entries"] or not row.get("video_image_return"):
 +                    continue
-+                row = {**row, "entries": ["prepare_for_qq"]}
++                row = {**row, "entries": ["analyze"]}
              chosen.append((row, tier))
          return chosen[:MAX_MOUNTED_PLUGINS]
  
-@@ -529,6 +534,8 @@
+@@ -529,6 +550,8 @@
          from main_logic.tool_calling import ToolDefinition
  
          entries = list(candidate.get("entries") or [])
 +        if candidate.get("plugin_id") == "video_reader":
-+            entries = [entry for entry in entries if entry == "prepare_for_qq"]
++            entries = [entry for entry in entries if entry == "analyze"]
          hints = candidate.get("entry_hints") if isinstance(candidate.get("entry_hints"), dict) else {}
          name = str(candidate.get("name") or candidate.get("plugin_id") or "")
          description = str(candidate.get("description") or "").strip()
-@@ -543,6 +550,13 @@
+@@ -543,6 +566,13 @@
              hint = str(hints.get(entry_id) or "").strip()
              lines.append(f"  - {entry_id}：{hint}" if hint else f"  - {entry_id}")
          lines.append("params 是一个 JSON 对象，内容按该 entry 自己的入参填。")
 +        if candidate.get("plugin_id") == "video_reader":
 +            lines.append(
-+                "QQ 看视频仅用 prepare_for_qq，params 必填 source（用户给出的公开视频链接，支持 B站分享文本/Markdown），"
++                "QQ 看视频仅用 analyze，params 必填 source（用户给出的公开视频链接，支持 B站分享文本/Markdown），"
 +                "可选 question、start_seconds、seconds（默认300秒）。每轮只看一个视频。"
 +                "先实际调用，等待画面分析结果后在当前 QQ 会话一次性概括；不发送进度，不在桌面回复。"
 +                "只分析抽样画面、不分析声音，长视频须说明本次观看范围，不可凭标题编造。"
@@ -35,18 +65,18 @@
          # 真机 16:53 的教训：使用者让她"用文本分析插件分析一下"，她回「好，我这就再帮你提交
          # 一次」，而那一轮**根本没有工具调用**（对端插件的日志里没有对应 entry）。
          # 光靠工具结果里那句话管不住这种情形 —— 得在**工具定义**里就写死这条：
-@@ -595,6 +609,10 @@
+@@ -595,6 +625,10 @@
              self.tool_name(row["plugin_id"]): set(row.get("entries") or [])
              for row, _tier in mounted
          }
 +        video_name = self.tool_name("video_reader")
 +        if video_name in allowed:
-+            allowed[video_name] &= {"prepare_for_qq"}
++            allowed[video_name] &= {"analyze"}
 +        video_attempted = False
          #: 每个工具对应的"查异步任务"的 entry（同一插件里 id 含 status 的那个）。
          pollers: dict[str, str] = {}
          for row, _tier in mounted:
-@@ -603,6 +621,7 @@
+@@ -603,6 +637,7 @@
                  pollers[self.tool_name(row["plugin_id"])] = poller
  
          async def _handle(tool_call: Any) -> Any:
@@ -54,7 +84,7 @@
              call_id = getattr(tool_call, "call_id", "") or ""
              name = str(getattr(tool_call, "name", "") or "")
              entries = allowed.get(name)
-@@ -632,6 +651,22 @@
+@@ -632,6 +667,22 @@
                  or self.tiers().get(plugin_id) not in self.allowed_tiers_for(permission)
              ):
                  return ToolResult(call_id=call_id, name=name, output="当前权限已失效，不能调用这个工具。")
@@ -72,14 +102,32 @@
 +                    )
 +
 +                output = await analyze_qq_video(self.plugin, params, still_allowed)
-+                emit_bridge_log(self.plugin, "INFO", "[PluginTool] video_reader:prepare_for_qq -> text result")
++                emit_bridge_log(self.plugin, "INFO", "[PluginTool] video_reader:analyze -> text result")
 +                return ToolResult(call_id=call_id, name=name, output=redact_text(output))
              output, payload = await self.call_plugin_entry_with_payload(
                  plugin_id, entry_id, params, session_key=session_key,
              )
 --- a/reply_generation_service.py
 +++ b/reply_generation_service.py
-@@ -484,6 +484,7 @@
+@@ -459,7 +459,17 @@
+                 on_tool_round_start=_capture_tool_round_start,
+             )
+             generation_completed = False
++            def restore_tool_prompt():
++                return None
++
+             try:
++                if armed_bridge_tools:
++                    # Tool policy belongs to this turn's system instructions, never
++                    # the human row that is later exported to persistent memory.
++                    restore_tool_prompt = self._apply_turn_memory_context(
++                        user_session, turn_system_prompt + TOOL_TURN_INSTRUCTION,
++                        turn_recalled_text, always_refresh=True,
++                    )
+                 turn_timeout = self.plugin._ai_turn_timeout_seconds
+                 if armed_recall_tool:
+                     # 工具轮的最坏路径是「初始流 + 每次工具迭代各一段流」，
+@@ -484,6 +494,7 @@
                      from .plugin_tool_service import CALL_TIMEOUT_SECONDS
  
                      turn_timeout += CALL_TIMEOUT_SECONDS * 2
@@ -87,7 +135,23 @@
                  if armed_builtin_tools:
                      # 收表情包是"下载 + 看图"两次网络往返，都不在 LLM 流的预算里。
                      # 不单独加的话，慢一点就会撞上超时——而这条路径超时的代价是
-@@ -681,6 +682,7 @@
+@@ -491,7 +502,6 @@
+                     turn_timeout += BUILTIN_TOOL_BUDGET_SECONDS
+                 turn_message = context.prompt_message
+                 if armed_bridge_tools:
+-                    turn_message += TOOL_TURN_INSTRUCTION
+                     self._log_tool_transport_state(user_session, session_key)
+                 await asyncio.wait_for(
+                     user_session.stream_text(turn_message),
+@@ -554,6 +564,7 @@
+                             # 单个卸载失败不能阻止另一槽位复位，也不能连累
+                             # 下面的历史清理与成员轮记录。
+                             pass
++                restore_tool_prompt()
+                 restore_session_prompt()
+                 history_now = getattr(user_session, "_conversation_history", []) or []
+                 if isinstance(history_now, list):
+@@ -681,6 +692,7 @@
          NapCat 那边是"群里什么样的人都有"的通道，多给一层工具面就多一层风险；
          等这边跑顺了再谈。
          """
@@ -95,7 +159,7 @@
          user_session._qq_tool_audit = {"started": 0, "returned": 0, "names": []}
          session_key = session_key or str(getattr(context, "session_key", "") or "")
          # 表情包：跟 recall / 插件工具是两条独立的线，但**不是常挂**——
-@@ -815,6 +817,10 @@
+@@ -815,6 +827,10 @@
              f"（权限 {getattr(context, 'permission_level', '') or 'unknown'}）: "
              + "、".join(row["plugin_id"] for row, _tier in mounted),
          )
@@ -108,7 +172,7 @@
      @staticmethod
 --- /dev/null
 +++ b/video_tool_service.py
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,123 @@
 +"""Isolated QQ video adapter: images -> host vision -> text, never a proactive send.
 +
 +Ordinary QQ image/sticker routing and the conversation client are untouched.
@@ -204,9 +268,10 @@
 +            return REVOKED
 +        # No _ctx, local-path permission overrides, callbacks or other model-supplied keys.
 +        clean = {key: params[key] for key in ("source", "question", "start_seconds", "seconds") if key in params}
++        clean["return_images"] = True  # Never accept a model-supplied desktop delivery flag.
 +        async with asyncio.timeout(VIDEO_ENTRY_TIMEOUT_SECONDS):
 +            result = await plugin.plugins.call_entry(
-+                "video_reader:prepare_for_qq", clean, timeout=VIDEO_ENTRY_TIMEOUT_SECONDS,
++                "video_reader:analyze", clean, timeout=VIDEO_ENTRY_TIMEOUT_SECONDS,
 +            )
 +        if not authorized():
 +            return REVOKED
@@ -233,7 +298,7 @@
 +        return FAILURE
 --- /dev/null
 +++ b/tests/test_qq_video_tool.py
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,211 @@
 +import asyncio
 +import base64
 +import io
@@ -270,24 +335,24 @@
 +    return plugin
 +
 +
-+def call(entry="prepare_for_qq"):
++def call(entry="analyze"):
 +    return SimpleNamespace(call_id="c1", name="plugin_video_reader", arguments={"entry_id": entry, "params": {"source": "https://example.com/v.mp4"}})
 +
 +
 +def mounted():
-+    return [({"plugin_id": "video_reader", "entries": ["analyze", "watch_video", "prepare_for_qq"], "running": True}, "admin")]
++    return [({"plugin_id": "video_reader", "entries": ["analyze"], "video_image_return": True, "running": True}, "admin")]
 +
 +
 +def test_only_safe_entry_is_mounted_and_old_video_version_is_not():
 +    service = _plugin(tiers={"video_reader": "admin"}).plugin_tool_service
 +    selected = service.select_mounted([mounted()[0][0]], allowed_tiers={"admin"})
-+    assert selected[0][0]["entries"] == ["prepare_for_qq"]
-+    assert mounted()[0][0]["entries"] == ["analyze", "watch_video", "prepare_for_qq"]
++    assert selected[0][0]["entries"] == ["analyze"]
++    assert mounted()[0][0]["entries"] == ["analyze"]
 +    assert not service.select_mounted([mounted()[0][0]], allowed_tiers={"all"})
-+    old = {**mounted()[0][0], "entries": ["analyze"]}
++    old = {**mounted()[0][0], "video_image_return": False}
 +    assert not service.select_mounted([old], allowed_tiers={"admin"})
 +    definition = service.build_tool_definition(mounted()[0][0], "admin")
-+    assert definition.parameters["properties"]["entry_id"]["enum"] == ["prepare_for_qq"]
++    assert definition.parameters["properties"]["entry_id"]["enum"] == ["analyze"]
 +    assert "source" in definition.description
 +
 +
@@ -298,7 +363,7 @@
 +    adapter = AsyncMock(return_value="完整概况")
 +    monkeypatch.setattr(video, "analyze_qq_video", adapter)
 +    handler = _handler(plugin, mounted())
-+    for entry in ("analyze", "watch_video"):
++    for entry in ("prepare_for_qq", "watch_video"):
 +        assert "不在可用列表" in (await handler(call(entry))).output
 +    first, second = await asyncio.gather(handler(call()), handler(call()))
 +    assert first.output == "完整概况"
@@ -312,9 +377,9 @@
 +    plugin = prepared_plugin()
 +    describe = AsyncMock(return_value="5秒内出现红色画面；没有分析声音。")
 +    monkeypatch.setattr(video, "_describe_video", describe)
-+    result = await video.analyze_qq_video(plugin, {"source": "url", "_ctx": {"lanlan_name": "desktop"}}, lambda: True)
++    result = await video.analyze_qq_video(plugin, {"source": "url", "_ctx": {"lanlan_name": "desktop"}, "return_images": False}, lambda: True)
 +    args = plugin.plugins.call_entry.call_args
-+    assert args.args == ("video_reader:prepare_for_qq", {"source": "url"})
++    assert args.args == ("video_reader:analyze", {"source": "url", "return_images": True})
 +    assert args.kwargs["timeout"] == 300
 +    content = describe.call_args.args[0]
 +    assert len(content) == 3
@@ -428,7 +493,9 @@
 +
 +
 +def test_generation_timeout_budget_only_when_video_mounted_and_resets():
-+    plugin = _plugin(tiers={"video_reader": "admin"}, plugins_result=_plugins_payload(_candidate("video_reader", ("prepare_for_qq",))))
++    candidate = _candidate("video_reader", ("analyze",))
++    candidate["entries"][0]["input_schema"] = {"properties": {"return_images": {"type": "boolean", "default": False}}}
++    plugin = _plugin(tiers={"video_reader": "admin"}, plugins_result=_plugins_payload(candidate))
 +    asyncio.run(_refresh(plugin.plugin_tool_service))
 +    service = _generation_service(plugin)
 +    session = _Session()
@@ -437,3 +504,9 @@
 +    plugin._qq_settings["qq_open_plugin_tools"] = {}
 +    asyncio.run(service._arm_turn_tools(context=_context(), user_session=session, consent_before={}))
 +    assert session._qq_video_tool_budget == 0
++
++
++def test_legacy_video_without_image_mode_is_not_mounted():
++    from plugin.plugins.qq_auto_reply.plugin_tool_service import _video_image_return_supported
++    assert not _video_image_return_supported(_candidate("video_reader", ("analyze",)))
++    assert not _video_image_return_supported({"entries": ["analyze"]})

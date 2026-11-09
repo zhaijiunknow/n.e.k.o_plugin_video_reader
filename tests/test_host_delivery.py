@@ -90,7 +90,7 @@ async def test_failed_submit_is_not_success(receipt):
 @pytest.mark.asyncio
 async def test_tool_returns_images_instead_of_second_proactive_turn():
     ctx = host_context()
-    result = await deliver_to_host(ctx, "question", *sample_sheets(25), tool_call=True)
+    result = await deliver_to_host(ctx, "question", *sample_sheets(25), return_images=True)
     assert len(result["images"]) == 2
     assert "S25:" in result["prompt"]
     ctx.images.upload.assert_not_called()
@@ -107,6 +107,7 @@ def fake_plugin(monkeypatch, tmp_path):
     }))
     fake = SimpleNamespace(config=SimpleNamespace(dump=AsyncMock(return_value={})), ctx=host_context())
     fake._watch = VideoReaderPlugin._watch.__get__(fake)
+    fake._prepare_images = VideoReaderPlugin._prepare_images.__get__(fake)
     return fake
 
 
@@ -134,16 +135,6 @@ async def test_agent_failure_is_not_silent(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_tool_entry_no_push(monkeypatch, tmp_path):
-    fake = fake_plugin(monkeypatch, tmp_path)
-    result = await VideoReaderPlugin.watch_video(fake, "source", seconds=5)
-    assert result["output"]["status"] == "images_ready"
-    assert result["images"]
-    fake.ctx.push_message.assert_not_called()
-    fake.ctx.finish.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_cancellation_resets_busy_without_reply(monkeypatch, tmp_path):
     fake = fake_plugin(monkeypatch, tmp_path)
     fake.ctx.images.upload.side_effect = asyncio.CancelledError
@@ -167,7 +158,7 @@ async def test_upload_failure_is_sanitized(monkeypatch, tmp_path):
 async def test_qq_entry_refuses_non_http_sources(monkeypatch, tmp_path, source):
     fake = fake_plugin(monkeypatch, tmp_path)
     fake._watch = AsyncMock()
-    result = await VideoReaderPlugin.prepare_for_qq(fake, source)
+    result = await VideoReaderPlugin.analyze(fake, source, return_images=True)
     assert result.value["status"] == "error"
     fake._watch.assert_not_called()
     fake.ctx.push_message.assert_not_called()
@@ -177,7 +168,7 @@ async def test_qq_entry_refuses_non_http_sources(monkeypatch, tmp_path, source):
 async def test_qq_entry_forces_image_envelope_and_never_pushes(monkeypatch, tmp_path):
     fake = fake_plugin(monkeypatch, tmp_path)
     fake.config.dump.return_value = {"video": {"analysis_backend": "plugin_model"}}
-    result = await VideoReaderPlugin.prepare_for_qq(fake, "【视频】 https://www.bilibili.com/video/BV18W4b6eE8Q/?a=1", seconds=5)
+    result = await VideoReaderPlugin.analyze(fake, "【视频】 https://www.bilibili.com/video/BV18W4b6eE8Q/?a=1", seconds=5, return_images=True)
     assert result.value["output"]["status"] == "images_ready"
     assert result.value["images"]
     assert "sheet_manifest" not in result.value["output"]
@@ -185,3 +176,23 @@ async def test_qq_entry_forces_image_envelope_and_never_pushes(monkeypatch, tmp_
     fake.ctx.images.upload.assert_not_called()
     fake.ctx.push_message.assert_not_called()
     fake.ctx.finish.assert_not_called()
+
+
+def test_only_analyze_entry_and_no_llm_tool():
+    from plugin.sdk.shared.core.base import EVENT_META_ATTR
+    entries = [getattr(member, EVENT_META_ATTR).id for member in vars(VideoReaderPlugin).values()
+               if hasattr(member, EVENT_META_ATTR)]
+    assert entries == ["analyze"]
+    assert not hasattr(VideoReaderPlugin, "watch_video")
+    assert not hasattr(VideoReaderPlugin, "prepare_for_qq")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["true", "false", 1, None])
+async def test_invalid_image_mode_never_processes_or_pushes(monkeypatch, tmp_path, value):
+    fake = fake_plugin(monkeypatch, tmp_path)
+    fake._watch = AsyncMock()
+    result = await VideoReaderPlugin.analyze(fake, "source", return_images=value)
+    assert result.value["status"] == "error"
+    fake._watch.assert_not_called()
+    fake.ctx.push_message.assert_not_called()

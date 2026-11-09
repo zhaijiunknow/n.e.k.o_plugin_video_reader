@@ -84,14 +84,14 @@ def prepare_images(sheets, manifests, *, max_images=8):
     return payloads, mappings
 
 
-async def deliver_to_host(ctx, prompt, sheets, manifests, *, target=None, tool_call=False):
+async def deliver_to_host(ctx, prompt, sheets, manifests, *, target=None, return_images=False):
     payloads, mappings = await asyncio.to_thread(
-        prepare_images, sheets, manifests, max_images=2 if tool_call else 8,
+        prepare_images, sheets, manifests, max_images=2 if return_images else 8,
     )
     text = SUMMARY_NOTE + "\n" + prompt + "\n" + "\n".join(mappings)
     if len(text.encode("utf-8")) > 120_000:
         raise AnalysisError("视频时间映射超过宿主消息预算，请缩短观看范围。")
-    if tool_call:
+    if return_images:
         # Resume the existing tool turn; a proactive push here would start a
         # second reply. The public tool-result image contract accepts 2 images.
         return {"images": [

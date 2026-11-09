@@ -1,2 +1,5 @@
 * text=auto eol=lf
 /third_party/dsh-see-now/** -text
+
+# Unified patches require a space on blank context lines.
+integrations/**/*.patch whitespace=-blank-at-eol
