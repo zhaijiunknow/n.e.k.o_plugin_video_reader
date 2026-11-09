@@ -196,3 +196,37 @@ async def test_invalid_image_mode_never_processes_or_pushes(monkeypatch, tmp_pat
     assert result.value["status"] == "error"
     fake._watch.assert_not_called()
     fake.ctx.push_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("return_images", [False, True])
+@pytest.mark.parametrize("start,length,expected", [(None, None, 120), ("", 0, 120), (0, 3600, 120)])
+async def test_time_fallback_reaches_extraction_once(monkeypatch, tmp_path, return_images, start, length, expected):
+    import plugin.plugins.video_reader.media as media
+    fake = fake_plugin(monkeypatch, tmp_path)
+    fake.config.dump.return_value = {"video": {"max_seconds": 120}}
+    fake.logger = Mock()
+    await VideoReaderPlugin.analyze(fake, "https://example.com/video.mp4", start_seconds=start,
+                                    seconds=length, return_images=return_images)
+    media.retrieve.assert_awaited_once()
+    media.extract.assert_awaited_once()
+    assert media.extract.call_args.kwargs["start"] == 0
+    assert media.extract.call_args.kwargs["seconds"] == expected
+    assert fake.ctx.push_message.call_count == (0 if return_images else 1)
+    assert not fake._watching
+    assert fake.logger.info.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_invalid_time_never_downloads_and_next_call_recovers(monkeypatch, tmp_path):
+    import plugin.plugins.video_reader.media as media
+    fake = fake_plugin(monkeypatch, tmp_path)
+    result = await VideoReaderPlugin.analyze(fake, "source", seconds=-1)
+    assert result.value["status"] == "error"
+    assert "seconds" in result.value["message"]
+    media.retrieve.assert_not_called()
+    fake.ctx.push_message.assert_not_called()
+    assert not fake._watching
+    await VideoReaderPlugin.analyze(fake, "source", seconds=0)
+    media.retrieve.assert_awaited_once()
+    fake.ctx.push_message.assert_called_once()

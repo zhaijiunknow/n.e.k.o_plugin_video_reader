@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 import tempfile
 from pathlib import Path
 
@@ -12,9 +11,9 @@ SCHEMA = {
     "properties": {
         "source": {"type": "string", "description": "用户提供的视频 URL、B站/b23.tv 链接（支持标题分享文本和 Markdown 链接）、本地视频绝对路径或 neko-video: 附件标识。不可编造路径。"},
         "question": {"type": "string", "description": "用户希望了解什么，如总结、剧情、操作步骤或评价。"},
-        "start_seconds": {"type": "number", "minimum": 0, "description": "从第几秒开始看，默认 0。"},
+        "start_seconds": {"type": "number", "minimum": 0, "default": 0, "description": "从第几秒开始看，默认 0；用户未指定时请省略，不要猜测。"},
         "return_images": {"type": "boolean", "default": False, "description": "仅供插件间联动：true 时只返回图片，不向桌面推送，且只接受公开 HTTP(S) 链接。桌面 Agent 请省略或填 false。"},
-        "seconds": {"type": "number", "minimum": 1, "maximum": 600, "description": "观看时长，默认 300 秒，受插件上限限制。"},
+        "seconds": {"type": "number", "minimum": 0, "maximum": 600, "default": 300, "description": "观看时长，默认 300 秒；未指定时请省略，0 也使用默认值。受插件上限限制，不代表完整视频时长。"},
     },
     "required": ["source"],
     "additionalProperties": False,
@@ -24,7 +23,7 @@ DESCRIPTION = "观看并分析用户发送的视频文件、视频网址、B站�
 
 @neko_plugin
 class VideoReaderPlugin(NekoPluginBase):
-    @plugin_entry(id="analyze", name="看视频", description=DESCRIPTION, input_schema=SCHEMA, timeout=300)
+    @plugin_entry(id="analyze", name="看视频", description=DESCRIPTION, input_schema=SCHEMA, timeout=300, llm_result_fields=["message", "feedback"])
     async def analyze(self, source: str, question: str = "总结视频内容并给出你的反馈", start_seconds: float = 0, seconds: float = 300, return_images: bool = False, **kwargs):
         if type(return_images) is not bool:
             return Ok({"status": "error", "message": "return_images 必须是布尔值。"})
@@ -64,12 +63,16 @@ class VideoReaderPlugin(NekoPluginBase):
                 from .model_analysis import analyze_sheets
                 if not isinstance(source, str) or not source.strip():
                     raise VideoError("请提供视频链接或视频附件。")
-                start, length = float(start_seconds), float(seconds)
-                if not math.isfinite(start) or not math.isfinite(length) or start < 0 or not 1 <= length <= 600:
-                    raise VideoError("起始时间须非负，观看时长须在 1–600 秒之间。")
+                from .time_parameters import normalize_time_range, safe_time_value
+                logger = getattr(self, "logger", None)
+                if logger is not None:
+                    logger.info("VideoReader time input: start_seconds={}, seconds={}",
+                                safe_time_value(start_seconds), safe_time_value(seconds))
                 cfg = await self.config.dump(timeout=5.0)
                 config = cfg.get("video", {}) if isinstance(cfg, dict) else {}
-                length = min(length, max(1, min(600, float(config.get("max_seconds", 300)))))
+                start, length = normalize_time_range(start_seconds, seconds, config.get("max_seconds", 300))
+                if logger is not None:
+                    logger.info("VideoReader effective range: start_seconds={}, seconds={}", start, length)
                 backend = "host" if host_images_only else config.get("analysis_backend", "host")
                 if backend not in {"host", "plugin_model"}:
                     raise VideoError("video.analysis_backend 只支持 host 或 plugin_model。")
